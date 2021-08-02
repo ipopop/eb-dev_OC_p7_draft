@@ -1,4 +1,3 @@
-## MERN Stack
-### React / Express / MongoDB / Redux
+### React / Express / Redux
 
 Start backend server : `npm start`
