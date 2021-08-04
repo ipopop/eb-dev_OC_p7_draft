@@ -1,6 +1,6 @@
 'use strict'
 
-const UserModel = require('../models/user.model');
+const UsersModel = require('../models/user.model.sequelize');
 const jwt = require('jsonwebtoken');
 const { signUpErrors, signInErrors } = require('../utils/errors.utils');
 
@@ -13,29 +13,29 @@ const createToken = (id) => {
 };
 
 module.exports.signUp = async (req, res) => {
-  const {pseudo, email, password} = req.body
+  const {usrPseudo, usrMail, usrPasswd} = req.body
 
   try {
-    const user = await UserModel.create({pseudo, email, password });
-    res.status(201).json({ user: user._id});
+    const user = await UsersModel.create({usrPseudo, usrMail, usrPasswd });
+    res.status(201).json({ user: user.usrId});
   }
   catch(err) {
     const errors = signUpErrors(err);
-    res.status(200).send({ errors })
+    res.status(500).send({ errors })
   }
 }
 
 module.exports.signIn = async (req, res) => {
-  const { email, password } = req.body
+  const { usrMail, usrPasswd } = req.body
 
   try {
-    const user = await UserModel.login(email, password);
-    const token = createToken(user._id);
+    const user = await UsersModel.login(usrMail, usrPasswd);
+    const token = createToken(user.usrId);
     res.cookie('jwt', token, { httpOnly: true, maxAge});
-    res.status(200).json({ user: user._id})
+    res.status(200).json({ user: user.usrId})
   } catch (err){
     const errors = signInErrors(err);
-    res.status(200).json({ errors });
+    res.status(500).json({ errors });
   }
 }
 
@@ -43,3 +43,5 @@ module.exports.logout = (req, res) => {
   res.cookie('jwt', '', { maxAge: 1 });
   res.redirect('/');
 }
+
+console.log('backend/controllers/auth.controller.js 🚀');

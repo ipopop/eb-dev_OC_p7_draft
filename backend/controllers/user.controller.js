@@ -1,33 +1,132 @@
 'use strict'
 
-const UserModel = require("../models/user.model");
-const ObjectID = require("mongoose").Types.ObjectId;
+const { sequelize } = require('../utils/database/db.sequelize');
+// const UsersModel = require("../models/user.model.sequelize");
+// const ObjectID = require("mongoose").Types.ObjectId;
+// const ObjectID = require("sequelize");
+const bcrypt = require("bcrypt")
+const token = require("../middleware/jwt.token")
+// const fs = require("fs")
+const { Op } = require("sequelize")
 
-module.exports.getAllUsers = async (req, res) => {
-  const users = await UserModel.find().select("-password");
-  res.status(200).json(users);
+exports.signup = async (req, res) => {
+  try {
+    const user = await sequelize.UsersModel.findOne({
+      where: { usrMail: req.body.usrMail },
+    });
+    if (user !== null) {
+      if (user.usrPseudo === req.body.usrPseudo) {
+        return res.status(400).json({ error: "ce pseudo est déjà utilisé" });
+      }
+    } else {
+      const hash = await bcrypt.hash(req.body.usrPasswd, 10);
+      const newUser = await sequelize.UserModel.create({
+        usrPseudo: req.body.usrPseudo,
+        usrMail: req.body.usrMail,
+        usrPasswd: hash,
+        usrRole: false,
+      });
+
+      const tokenObject = await token.issueJWT(newUser);
+      res.status(201).send({
+        user: newUser,
+        token: tokenObject.token,
+        expires: tokenObject.expiresIn,
+        message: `Votre compte est bien créé ${newUser.usrPseudo} !`,
+      });
+    }
+  } catch (error) {
+    return res.status(400).send({ error: "email déjà utilisé" });
+  }
 };
 
-module.exports.userInfo = (req, res) => {
-  if (!ObjectID.isValid(req.params.id))
-    return res.status(400).send("ID unknown : " + req.params.id);
+exports.login = async (req, res) => {
+  try {
+    const user = await sequelize.UsersModel.findOne({
+      where: { usrMail: req.body.usrMail },
+    }); 
+    if (user === null) {
+      return res.status(403).send({ error: "Connexion échouée" });
+    } else {
+      const hash = await bcrypt.compare(req.body.usrPasswd, user.usrPasswd); 
+      if (!hash) {
+        return res.status(401).send({ error: "Mot de passe incorrect !" });
+      } else {
+        const tokenObject = await token.issueJWT(user);
+        res.status(200).send({
+          user: user,
+          token: tokenObject.token,
+          sub: tokenObject.sub,
+          expires: tokenObject.expiresIn,
+          message: "Hello " + user.usrPseudo + " 😃",
+        });
+      }
+    }
+  } catch (error) {
+    return res.status(500).send({ error: "Erreur serveur : " + error });
+  }
+};
 
-  UserModel.findById(req.params.id, (err, docs) => {
-    if (!err) res.send(docs);
-    else console.log("ID unknown : " + err);
-  }).select("-password");
+// get all users (except 'admins')
+exports.getAllUsers = async (req, res) => {
+  try {
+    const users = await sequelize.UsersModel.findAll({
+      attributes: ['usrPseudo', 'usrId', 'usrImgUrl', 'usrBio', 'usrMail'],
+      where: {
+        usrId: {
+          [Op.ne]: 1,
+        },
+      },
+    });
+    console.log(users.every(user => user instanceof User)); // true
+    console.log("All users:", JSON.stringify(users, null, 2));
+    res.status(200).send(users);
+  } catch (error) {
+    return res.status(500).send({ error: "Erreur serveur : " + error });
+  }
+};
+
+// module.exports.getAllUsers = async (req, res) => {
+//   const users = await UsersModel.find().select("-usrPasswd");
+//   res.status(200).json(users);
+// };
+
+// module.exports.userInfo = (req, res) => {
+  // if (!ObjectID.isValid(req.params.id))
+  //   return res.status(400).send("ID unknown : " + req.params.id);
+
+//   UsersModel.findById(req.params.usrId, (err, docs) => {
+//     if (!err) res.send(docs);
+//     else console.log("ID unknown : " + err);
+//   }).select("-usrPasswd");
+// };
+
+exports.userInfo = async (req, res) => {
+  try {
+    const users = await sequelize.UsersModel.findOne({
+      where: { usrId: req.params.usrId },
+      where: {
+        usrId: {
+          [Op.ne]: 1,
+        },
+      },
+    });
+    res.status(200).send(users);
+  } catch (error) {
+    return res.status(500).send({ error: "Erreur serveur : " + error });
+  }
 };
 
 module.exports.updateUser = async (req, res) => {
-  if (!ObjectID.isValid(req.params.id))
-    return res.status(400).send("ID unknown : " + req.params.id);
+  // if (!ObjectID.isValid(req.params.id))
+  //   return res.status(400).send("ID unknown : " + req.params.id);
 
   try {
-    await UserModel.findOneAndUpdate(
-      { _id: req.params.id },
+    await sequelize.UsersModel.findOneAndUpdate(
+      { usrId: req.params.usrId },
       {
         $set: {
-          bio: req.body.bio,
+          usrBio: req.body.usrBio,
         },
       },
       { new: true, upsert: true, setDefaultsOnInsert: true },
@@ -42,11 +141,11 @@ module.exports.updateUser = async (req, res) => {
 };
 
 module.exports.deleteUser = async (req, res) => {
-  if (!ObjectID.isValid(req.params.id))
-    return res.status(400).send("ID unknown : " + req.params.id);
+  // if (!ObjectID.isValid(req.params.id))
+  //   return res.status(400).send("ID unknown : " + req.params.id);
 
   try {
-    await UserModel.remove({ _id: req.params.id }).exec();
+    await sequelize.UsersModel.remove({ usrId: req.params.usrId }).exec();
     res.status(200).json({ message: "Successfully deleted. " });
   } catch (err) {
     return res.status(500).json({ message: err });
@@ -54,17 +153,17 @@ module.exports.deleteUser = async (req, res) => {
 };
 
 module.exports.follow = async (req, res) => {
-  if (
-    !ObjectID.isValid(req.params.id) ||
-    !ObjectID.isValid(req.body.idToFollow)
-  )
-    return res.status(400).send("ID unknown : " + req.params.id);
+  // if (
+  //\  !ObjectID.isValid(req.params.id) ||
+  //\  !ObjectID.isValid(req.body.idToFollow)
+  //  )
+  //   return res.status(400).send("ID unknown : " + req.params.id);
 
   try {
     // add to the follower list
-    await UserModel.findByIdAndUpdate(
-      req.params.id,
-      { $addToSet: { following: req.body.idToFollow } },
+    await sequelize.UsersModel.findByIdAndUpdate(
+      req.params.usrId,
+      { $addToSet: { following: req.body.usrFollowing } },
       { new: true, upsert: true },
       (err, docs) => {
         if (!err) res.status(201).json(docs);
@@ -72,9 +171,9 @@ module.exports.follow = async (req, res) => {
       }
     );
     // add to following list
-    await UserModel.findByIdAndUpdate(
+    await sequelize.UsersModel.findByIdAndUpdate(
       req.body.idToFollow,
-      { $addToSet: { followers: req.params.id } },
+      { $addToSet: { followers: req.params.usrFollowers } },
       { new: true, upsert: true },
       (err, docs) => {
         // if (!err) res.status(201).json(docs);
@@ -87,16 +186,16 @@ module.exports.follow = async (req, res) => {
 };
 
 module.exports.unfollow = async (req, res) => {
-  if (
+  /*if (
     !ObjectID.isValid(req.params.id) ||
     !ObjectID.isValid(req.body.idToUnfollow)
   )
     return res.status(400).send("ID unknown : " + req.params.id);
-
+  */
   try {
-    await UserModel.findByIdAndUpdate(
+    await sequelize.UsersModel.findByIdAndUpdate(
       req.params.id,
-      { $pull: { following: req.body.idToUnfollow } },
+      { $pull: { following: req.body.usrFollowers } },
       { new: true, upsert: true },
       (err, docs) => {
         if (!err) res.status(201).json(docs);
@@ -104,9 +203,9 @@ module.exports.unfollow = async (req, res) => {
       }
     );
     // remove to following list
-    await UserModel.findByIdAndUpdate(
-      req.body.idToUnfollow,
-      { $pull: { followers: req.params.id } },
+    await sequelize.UsersModel.findByIdAndUpdate(
+      req.body.usrFollowers,
+      { $pull: { followers: req.params.usrId } },
       { new: true, upsert: true },
       (err, docs) => {
         // if (!err) res.status(201).json(docs);
@@ -117,3 +216,5 @@ module.exports.unfollow = async (req, res) => {
     return res.status(500).json({ message: err });
   }
 };
+
+console.log('backend/controllers/user.controller.js 🚀');
